@@ -1,0 +1,58 @@
+/* common.css — iPad Safari 向け共通スタイル（外部フォント・外部リソースなし） */
+:root{--ink:#1b2733;--bg:#f3f6f9;--card:#fff;--line:#c3cfda;--main:#0b5cad;--ok:#0a6b36;--ng:#a8201a}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-size:18px;line-height:1.7;
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+#app{max-width:980px;margin:0 auto;padding:8px 16px 0}
+header h1{font-size:26px;line-height:1.3;margin:10px 0 6px}
+header h1 small{display:block;font-size:15px;font-weight:400;color:#51606f}
+.tools{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0}
+.prog{list-style:none;display:flex;flex-wrap:wrap;gap:6px 14px;padding:0;margin:8px 0 4px;font-size:15px;color:#51606f}
+.prog li{padding:2px 0;border-bottom:4px solid transparent}
+.prog li.past{color:var(--ink)} .prog li.past::before{content:"✓ "}
+.prog li.now{color:var(--ink);font-weight:700;border-bottom-color:var(--main)}
+button{font:inherit;min-height:48px;min-width:48px;padding:8px 20px;border-radius:12px;border:2px solid var(--main);
+  background:#fff;color:var(--main);font-weight:600;touch-action:manipulation;-webkit-tap-highlight-color:transparent;cursor:pointer}
+button.main{background:var(--main);color:#fff}
+button.big{min-height:56px;font-size:20px;padding:10px 28px}
+button.sub{border-color:var(--line);color:var(--ink);font-weight:400}
+button.danger{border-color:var(--ng);color:var(--ng)}
+button:disabled{cursor:default}
+button.main:disabled,button.sub:disabled{opacity:.4}
+button:focus-visible{outline:4px solid #f2b705;outline-offset:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin:14px 0}
+.card h2{font-size:15px;margin:0 0 6px;color:#51606f;font-weight:700}
+.q{font-size:21px;font-weight:700;margin:4px 0}
+.note{color:#51606f;margin:6px 0 0}
+.tiles{display:flex;gap:14px;flex-wrap:wrap}
+.tile{flex:1 1 220px;border:2px solid var(--line);border-radius:12px;padding:10px 16px;text-align:center}
+.tile b{display:block;font-size:22px} .tile span{font-size:24px}
+.choices{margin:6px 0}
+.choice{display:block;width:100%;text-align:left;margin:8px 0;border-color:var(--line);color:var(--ink);font-weight:400;padding:12px 16px}
+.choice .mk{display:inline-block;margin-right:10px;font-weight:700}
+.choice.sel{border-color:var(--main);background:#e8f1fb}
+.choice.ok{border-color:var(--ok);background:#e6f4ec;border-width:3px}
+.choice.ng{border-color:var(--ng);background:#fbeceb;border-style:dashed;border-width:3px}
+.choice:disabled{color:var(--ink)}
+@media (orientation:landscape) and (min-width:900px){.choices{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:0 12px}}
+.fb{margin:8px 0;font-weight:600}
+.plot{display:block;width:100%;max-width:760px;height:auto;margin:0 auto}
+.tw{overflow-x:auto;margin-top:8px}
+table{border-collapse:collapse;width:100%;font-size:18px}
+th,td{border:1px solid var(--line);padding:6px 12px;text-align:center}
+thead th{background:#eef3f8}
+tbody th{text-align:left;background:#f8fafc}
+.terms{margin:8px 0 0;padding:10px 14px;background:#f3f6f9;border-radius:10px}
+.terms dt{font-weight:700;margin-top:4px} .terms dd{margin:0 0 4px}
+.steps{padding-left:1.3em;margin:6px 0}
+.notice{background:#fff8e1;border:2px solid #e0b100;border-radius:12px;padding:10px 16px;margin:10px 0}
+.notice button{margin:4px 10px 4px 0}
+.result li{margin:6px 0}
+.final{font-size:22px;font-weight:700}
+footer.nav{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;justify-content:space-between;
+  background:rgba(243,246,249,.97);border-top:1px solid var(--line);margin:0 -16px;padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+footer.nav .hint{flex:1;text-align:center;font-size:16px;color:#51606f;line-height:1.4}
+footer.nav button{min-width:110px}
+@media (max-width:600px){body{font-size:17px}.q{font-size:19px}}

@@ -1,0 +1,67 @@
+// 画面操作テスト（jsdomでapp-a.htmlを実際に動かす）。レイアウト・見た目・タップ感は確認できない。
+const { JSDOM } = require('jsdom'); const path = require('path'); const assert = require('assert');
+let pass = 0, fail = 0;
+function t(name, fn) { try { fn(); pass++; console.log('成功  ' + name); } catch (e) { fail++; console.log('失敗  ' + name + ' → ' + e.message); } }
+JSDOM.fromFile(path.join(__dirname, '../app-a.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true }).then(dom => {
+  const w = dom.window, d = w.document;
+  w.addEventListener('error', e => { fail++; console.log('失敗  実行時エラー ' + e.message); });
+  setTimeout(() => {
+    const $ = s => d.querySelector(s), $$ = s => Array.from(d.querySelectorAll(s));
+    const click = (act, v) => { const b = $('[data-act="' + act + '"]' + (v === undefined ? '' : '[data-v="' + v + '"]')); assert.ok(b, 'ボタンなし:' + act); b.click(); };
+    const txt = () => d.getElementById('app').textContent, svgTxt = () => ($('svg') ? $('svg').textContent : '');
+    const rows = () => $$('tbody tr').map(r => Array.from(r.children).map(c => c.textContent));
+    const nextOn = () => !$('[data-act="next"]').disabled;
+
+    t('起動し、タイトルが表示される', () => { assert.ok(txt().includes('データのウソを見破れ！') && $('[data-act="next"]')); });
+    t('最初は「戻る」が押せない', () => assert.ok($('[data-act="back"]').disabled));
+    click('next');
+    t('S1 予想前：個々の得点・分布・中央値が見えない', () => { assert.ok(!$('svg')); assert.ok(!txt().includes('中央値')); assert.ok(txt().includes('平均 70点')); assert.ok(!nextOn()); });
+    click('s1pick', 2);
+    t('S1 「まだ判断できない」に肯定的なフィードバック（不正解扱いしない）', () => { assert.ok(txt().includes('平均だけでは判断材料が足りないと考えた点は重要です')); assert.ok(!txt().includes('× ちがう')); assert.ok(!$('svg')); });
+    click('s1open');
+    t('S1 公開後：表の値が正しい', () => { assert.deepStrictEqual(rows(), [['A組', '70', '70', '70', '70'], ['B組', '70', '100', '100', '0']]); });
+    t('S1 公開後：ドットの数と図の平均・中央値ラベルが一致', () => { assert.strictEqual($$('svg circle').length, 10); const s = svgTxt(); assert.ok(s.includes('中央値 70') && s.includes('中央値 100') && (s.match(/平均 70/g) || []).length === 2); });
+    t('S1 公開後：正解（同じとは言えない）に◎、選択はロック、次へ可', () => { assert.ok($('.choice.ok').textContent.includes('同じとは言えない')); assert.ok($('.choice').disabled); assert.ok(nextOn()); });
+    click('next');
+    t('S2 初期：平均70・中央値70、図は1行（追加前）', () => { assert.deepStrictEqual(rows(), [['いまのデータ', '70', '70']]); assert.strictEqual($$('svg circle').length, 5); assert.ok(!nextOn()); assert.ok(!$('[data-act="s2add"]')); });
+    click('s2pick', 1);
+    click('s2add');
+    t('S2 追加後：平均91.67・中央値72.5、200の点（■）がある', () => { assert.deepStrictEqual(rows(), [['追加前', '70', '70'], ['追加後', '91.67', '72.5'], ['変化', '+21.67', '+2.5']]); assert.strictEqual($$('svg rect').length, 1); assert.ok(svgTxt().includes('平均 91.67') && svgTxt().includes('中央値 72.5')); });
+    t('S2 解説：外れ値を自動削除しないと明記、予想が違った場合の文言', () => { assert.ok(txt().includes('自動的に削除してはいけません')); assert.ok(txt().includes('入力ミス') && txt().includes('実際に起こりうる')); assert.ok(txt().includes('予想とは違いましたか')); assert.ok(nextOn()); });
+    click('s2undo');
+    t('S2 元に戻す：初期データに戻る（平均70・中央値70・点5つ）', () => { assert.deepStrictEqual(rows(), [['いまのデータ', '70', '70']]); assert.strictEqual($$('svg circle').length, 5); assert.strictEqual($$('svg rect').length, 0); assert.ok(nextOn()); });
+    click('s2add');
+    t('S2 再追加できる', () => assert.deepStrictEqual(rows()[1], ['追加後', '91.67', '72.5']));
+    click('next');
+    t('S3 開始：数値ラベルなし（答えが見えていない）', () => { assert.ok(!/中央値 |Q1|最小|四分位範囲 =/.test(svgTxt())); assert.ok(!nextOn()); });
+    click('s3pick', 0);
+    t('S3 問1不正解：× と正解表示、中央値65を図に表示', () => { assert.ok($('.choice.ng')); assert.ok(txt().includes('正解は「65」')); assert.ok(svgTxt().includes('中央値 65')); });
+    click('s3next'); click('s3pick', 0);
+    t('S3 問2：Q1=55, Q3=75 を図に表示', () => { assert.ok(svgTxt().includes('Q1 55') && svgTxt().includes('Q3 75')); assert.ok(txt().includes('中央値で前半と後半に分けます')); });
+    click('s3next'); click('s3pick', 1);
+    t('S3 問3：四分位範囲 = 75 − 55 = 20', () => assert.ok(svgTxt().includes('四分位範囲 = 75 − 55 = 20')));
+    click('s3next'); click('s3pick', 0);
+    t('S3 問4：最小42・最大93', () => assert.ok(svgTxt().includes('最小 42') && svgTxt().includes('最大 93')));
+    click('s3next');
+    t('S3 問5：XとYの両方を表示、Yの値も一致', () => { const s = svgTxt(); assert.ok(s.includes('X') && s.includes('Y')); assert.ok(s.includes('Q1 60') && s.includes('Q3 70') && s.includes('最小 48') && s.includes('最大 82') && s.includes('四分位範囲 = 70 − 60 = 10')); assert.ok(!nextOn()); });
+    click('s3pick', 0);
+    t('S3 問5：解説に「個々の値すべては読み取れない」「中央値が高い≠平均も高い」', () => { assert.ok(txt().includes('個々のデータの値すべては分かりません')); assert.ok(txt().includes('平均値も必ず高いとは限りません')); assert.ok(nextOn()); });
+    click('s3dots');
+    t('S3 データ重ね表示：11+11個の点', () => assert.strictEqual($$('svg circle').length, 22));
+    click('next');
+    t('確認問題：1問目を誤答→正解と解説が出る', () => { click('qpick', 0); assert.ok(txt().includes('正解は「平均が同じでも、分布や中央値が違うことがある」')); assert.ok(txt().includes('B組は平均70点でも中央値は100点')); });
+    click('qnext'); click('qpick', 2); click('qnext'); click('qpick', 0); click('qnext'); click('qpick', 1);
+    t('確認問題：最終問題後に結果へ進める', () => { assert.ok(nextOn()); click('qnext'); assert.ok(txt().includes('4問中 3問 正解')); });
+    t('終了画面：Excelへのメッセージ', () => assert.ok(txt().includes('次はExcelを使って、実際のデータの特徴を自分で調べてみよう。')));
+    click('back');
+    t('戻る：確認問題に戻っても回答状態が保持される', () => { assert.ok($('.choice.ok')); assert.ok(nextOn()); });
+    click('back'); click('back'); click('back');
+    t('戻る：ステージ1に戻っても公開状態・回答が保持される', () => { assert.strictEqual($$('svg circle').length, 10); assert.ok($('.choice.sel, .choice.ng, .choice.ok')); });
+    click('retry'); click('askNo');
+    t('やり直す→やめる：状態は消えない', () => { assert.strictEqual($$('svg circle').length, 10); });
+    click('retry'); click('askYes');
+    t('やり直す→実行：このステージだけ初期化（予想前に戻る）', () => { assert.ok(!$('svg')); assert.ok(!nextOn()); assert.ok(!$('.choice.sel, .choice.ok, .choice.ng')); });
+    t('ヘルプの表示・非表示', () => { click('help'); assert.ok(txt().includes('つかいかた')); click('help'); });
+    console.log('\n成功 ' + pass + ' / 失敗 ' + fail); process.exit(fail ? 1 : 0);
+  }, 400);
+});
