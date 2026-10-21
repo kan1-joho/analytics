@@ -17,6 +17,14 @@
     return { n: s.length, min: s[0], max: s[s.length - 1], mean: mean(s), median: median(s), q1: q.q1, q3: q.q3, iqr: q.q3 - q.q1 };
   }
   function fmt(x) { return String(Math.round(x * 100) / 100); }
+  // 入力チェック（整数のみ・範囲内）
+  var Valid = { intIn: function (str, lim) {
+    var s = String(str === undefined || str === null ? '' : str).trim();
+    if (!/^\d+$/.test(s)) { return { ok: false, err: '数字（整数）だけを入れてください。空欄や数字以外は使えません。' }; }
+    var v = Number(s);
+    if (v < lim.min || v > lim.max) { return { ok: false, err: lim.min + '〜' + lim.max + 'の整数を入れてください。' }; }
+    return { ok: true, v: v };
+  } };
   var Stats = { mean: mean, median: median, quartiles: quartiles, summary: summary, fmt: fmt };
 
   /* ---------- SVG描画 ---------- */
@@ -47,18 +55,23 @@
     rows.forEach(function (d, i) {
       var top = i * RH + 4, ay = top + 150, s = d.summary, cnt = {}, mx = sx(s.median), ax = sx(s.mean);
       out += T(8, ay - 10, d.label, { a: 'start', s: 20, w: 700, c: d.color });
-      d.values.forEach(function (v) {
-        var k = cnt[v] || 0, cx = sx(v), cy = ay - 4 - r - k * (2 * r + 1);
+      d.values.forEach(function (v, idx) {
+        if (d.limit !== undefined && idx >= d.limit) { return; }
+        var k = cnt[v] || 0, cx = sx(Math.min(Math.max(v, o.min), o.max)), cy = ay - 4 - r - k * (2 * r + 1);
         cnt[v] = k + 1;
-        out += (d.special !== undefined && v === d.special)
+        out += (d.specialIndex === idx)
           ? '<rect x="' + (cx - r) + '" y="' + (cy - r) + '" width="' + 2 * r + '" height="' + 2 * r + '" fill="' + d.color + '" stroke="#fff" stroke-width="1.5"/>'
           : '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + d.color + '" stroke="#fff" stroke-width="1.5"/>';
       });
       out += axis(sx, o.min, o.max, o.step, ay);
+      if (d.showMedian !== false) {
       out += '<polygon points="' + mx + ',' + (top + 24) + ' ' + (mx + 10) + ',' + (top + 34) + ' ' + mx + ',' + (top + 44) + ' ' + (mx - 10) + ',' + (top + 34) + '" fill="#fff" stroke="' + INK + '" stroke-width="3"/>';
       out += T(clamp(mx), top + 16, '中央値 ' + fmt(s.median), { w: 700 });
+      }
+      if (d.showMean !== false) {
       out += '<polygon points="' + ax + ',' + (ay + 34) + ' ' + (ax + 10) + ',' + (ay + 50) + ' ' + (ax - 10) + ',' + (ay + 50) + '" fill="' + INK + '"/>';
       out += T(clamp(ax), ay + 72, '平均 ' + fmt(s.mean), { w: 700 });
+      }
     });
     return svg(rows.length * RH + 8, o.title || 'ドットプロット', out);
   }
@@ -87,7 +100,28 @@
     return svg(ay + 44, o.title || '箱ひげ図', out);
   }
 
+  /* ---------- 短いアニメーション（データの変化を目で追うため。0.3〜0.8秒程度） ---------- */
+  var Anim = {
+    id: 0,
+    on: function () {
+      if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function' || window.NO_ANIM) { return false; }
+      return !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    },
+    stop: function () { Anim.id++; },
+    run: function (ms, step, done) {
+      var me = ++Anim.id, t0 = null;
+      function frame(ts) {
+        if (me !== Anim.id) { return; }
+        if (t0 === null) { t0 = ts; }
+        var p = Math.min(1, (ts - t0) / ms);
+        step(p < 1 ? p * (2 - p) : 1);
+        if (p < 1) { window.requestAnimationFrame(frame); } else if (done) { done(); }
+      }
+      window.requestAnimationFrame(frame);
+    }
+  };
+
   var Draw = { dots: dots, boxes: boxes };
-  if (typeof module !== 'undefined' && module.exports) { module.exports = { Stats: Stats, Draw: Draw }; }
-  root.Stats = Stats; root.Draw = Draw;
+  if (typeof module !== 'undefined' && module.exports) { module.exports = { Stats: Stats, Draw: Draw, Valid: Valid, Anim: Anim }; }
+  root.Stats = Stats; root.Draw = Draw; root.Valid = Valid; root.Anim = Anim;
 })(typeof window !== 'undefined' ? window : globalThis);

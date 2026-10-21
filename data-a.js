@@ -2,6 +2,8 @@
    データや正解を直すときは、このファイルだけを編集する。計算は common.js の Stats が行う。 */
 (function (root) {
   var DATA_A = {
+    // 「試してみよう」で入力できる整数の範囲（グラフの軸の範囲と一致させている）
+    limits: { s2: { min: 40, max: 220 }, s3: { min: 40, max: 100 } },
     stage1: {
       A: { name: 'A組', scores: [70, 70, 70, 70, 70] },
       B: { name: 'B組', scores: [100, 100, 100, 50, 0] },

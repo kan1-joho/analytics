@@ -56,3 +56,13 @@ footer.nav{position:sticky;bottom:0;display:flex;align-items:center;gap:12px;jus
 footer.nav .hint{flex:1;text-align:center;font-size:16px;color:#51606f;line-height:1.4}
 footer.nav button{min-width:110px}
 @media (max-width:600px){body{font-size:17px}.q{font-size:19px}}
+
+/* 試してみよう（数値の編集） */
+.ingrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px;margin:8px 0}
+.ingrid label{display:block;font-size:14px;color:#51606f;line-height:1.3}
+.ingrid input{display:block;width:100%;min-height:48px;font:inherit;font-size:20px;padding:6px 10px;border:2px solid var(--line);border-radius:10px;margin-top:2px;color:var(--ink);background:#fff}
+.ingrid input:focus{outline:4px solid #f2b705;border-color:var(--main)}
+.card h3{font-size:17px;margin:10px 0 0}
+.card .btns button{margin:6px 10px 6px 0}
+#res,#fb{scroll-margin-bottom:120px;scroll-margin-top:12px}
+main{padding-bottom:12px}

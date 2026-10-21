@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>データのウソを見破れ！</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<div id="app"><noscript>このアプリはJavaScriptが必要です。</noscript></div>
+<script src="data-a.js"></script>
+<script src="common.js"></script>
+<script>
+(function () {
+  var D = DATA_A, St = Stats, Dr = Draw, f = St.fmt;
+  var NAMES = ['はじめ', '① 平均の罠', '② 外れ値', '③ 箱ひげ図', '確認問題', 'おわり'];
+  var C1 = '#0b6e8a', C2 = '#a8470a';
+  var LIM = D.limits;
+  var app = document.getElementById('app'), S;
+  window.addEventListener('error', function (e) {
+    var d = document.createElement('div'); d.className = 'notice'; d.setAttribute('role', 'alert');
+    d.textContent = 'エラーが起きました：' + (e && e.message ? e.message : '');
+    document.body.insertBefore(d, document.body.firstChild);
+  });
+  function $(id) { return document.getElementById(id); }
+  function lerp(a, b, p) { return a + (b - a) * p; }
+
+  function fresh() {
+    return { scr: 0, help: false, ask: null,
+      s1: { pick: null, open: false },
+      s2: { pick: null, cur: D.stage2.base.slice(), added: false, done: false, t: { open: false, vals: D.stage2.base.concat([D.stage2.extra]), draft: null, err: '' } },
+      s3: { i: 0, ans: [], dots: false, t: { open: false, X: D.stage3.X.slice(), Y: D.stage3.Y.slice(), draft: null, err: '' } },
+      q: { i: 0, ans: [] } };
+  }
+  S = fresh();
+
+  /* ---------- 部品 ---------- */
+  function card(label, body, id) { return '<section class="card"' + (id ? ' id="' + id + '"' : '') + '><h2>' + label + '</h2>' + body + '</section>'; }
+  function table(head, rows) {
+    return '<div class="tw"><table><thead><tr>' + head.map(function (h) { return '<th scope="col">' + h + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr>' + r.map(function (c, i) { return i ? '<td>' + c + '</td>' : '<th scope="row">' + c + '</th>'; }).join('') + '</tr>'; }).join('') + '</tbody></table></div>';
+  }
+  function terms(list) { return '<dl class="terms">' + list.map(function (t) { return '<dt>' + t[0] + '</dt><dd>' + t[1] + '</dd>'; }).join('') + '</dl>'; }
+  // correct: 正解の番号（null なら判定しない）、lock: 押せなくする
+  function choices(act, opts, picked, correct, lock) {
+    return '<div class="choices">' + opts.map(function (t, i) {
+      var cls = 'choice', mk = '';
+      if (picked !== null && picked !== undefined) {
+        if (correct === null) { if (i === picked) { cls += ' sel'; mk = '<span class="mk">✔ えらんだ</span>'; } }
+        else if (i === correct) { cls += ' ok'; mk = '<span class="mk">◎ 正解</span>'; }
+        else if (i === picked) { cls += ' ng'; mk = '<span class="mk">× ちがう</span>'; }
+      }
+      return '<button class="' + cls + '" data-act="' + act + '" data-v="' + i + '"' + (lock ? ' disabled' : '') + '>' + mk + t + '</button>';
+    }).join('') + '</div>';
+  }
+  function has(v) { return v !== null && v !== undefined; }
+
+  /* ---------- 共通の枠 ---------- */
+  function header() {
+    var p = NAMES.map(function (n, i) { return '<li class="' + (i === S.scr ? 'now' : i < S.scr ? 'past' : '') + '"' + (i === S.scr ? ' aria-current="step"' : '') + '>' + n + '</li>'; }).join('');
+    var h = '<header><h1>データのウソを見破れ！<small>第8回 データを料理する</small></h1><div class="tools"><button class="sub" data-act="help">つかいかた</button>' +
+      (S.scr >= 1 && S.scr <= 4 ? '<button class="sub" data-act="retry">このステージをやり直す</button>' : '') + '</div><ol class="prog">' + p + '</ol></header>';
+    if (S.help) {
+      h += '<div class="notice"><b>つかいかた</b><ol class="steps"><li>問いを読む</li><li>予想（答え）を選ぶ</li><li>ボタンを押して、データで確かめる</li><li>「わかったこと」を読む</li><li>右下の「次へ」を押す</li></ol>' +
+        '<p class="note">まちがえても大丈夫です。「戻る」で前の画面に戻れます。答えはこの画面の中だけで使われ、保存も送信もされません。</p><button class="sub" data-act="help">とじる</button></div>';
+    }
+    if (S.ask) {
+      h += '<div class="notice"><p>' + (S.ask === 'all' ? '最初の画面に戻り、すべての答えを消しますか？' : 'このステージの答えを消して、はじめからやり直しますか？') +
+        '</p><button class="danger" data-act="askYes">やり直す</button><button class="sub" data-act="askNo">やめる</button></div>';
+    }
+    return h;
+  }
+  function canNext() {
+    return [true, S.s1.open, S.s2.done, S.s3.ans[S.s3.i] !== undefined, S.q.ans[S.q.i] !== undefined, false][S.scr];
+  }
+  function hint() {
+    var s = S;
+    switch (s.scr) {
+      case 0: return '「はじめる」を押そう';
+      case 1: return !has(s.s1.pick) ? 'まず予想を選ぼう' : !s.s1.open ? '「データを公開」を押そう' : '「わかったこと」を読んで、次へ';
+      case 2: return !has(s.s2.pick) ? 'まず予想を選ぼう' : !s.s2.done ? '「極端な値を追加」を押そう' : '「わかったこと」を読んで、次へ';
+      case 3: return s.s3.t.open ? '数字を変えて「確定」を押そう' : s.s3.ans[s.s3.i] === undefined ? '答えを選ぼう' : s.s3.i < 4 ? '「次の問題へ」を押そう' : '「わかったこと」を読んで、次へ';
+      case 4: return s.q.ans[s.q.i] === undefined ? '答えを選ぼう' : s.q.i < D.quiz.length - 1 ? '解説を読んで、「次の問題へ」' : '解説を読んで、「結果を見る」';
+      default: return '';
+    }
+  }
+  function footer() {
+    var label = ['はじめる', '次へ', '次へ', '次へ', '結果を見る', 'おわり'][S.scr];
+    if ((S.scr === 3 && S.s3.i < 4) || (S.scr === 4 && S.q.i < D.quiz.length - 1)) { label = '次の問題へ'; }
+    return '<footer class="nav"><button class="sub" data-act="back"' + (S.scr === 0 ? ' disabled' : '') + '>戻る</button><div class="hint">' + hint() +
+      '</div><button class="main" data-act="next"' + (canNext() ? '' : ' disabled') + '>' + label + '</button></footer>';
+  }
+
+  /* ---------- 各画面 ---------- */
+  function title() {
+    return card('このアプリでやること',
+      '<p class="q">平均点が同じなら、データも同じ？</p><p>3つのステージで、データを見るときの大切な考え方を、自分で予想して、確かめます。</p>' +
+      '<ol class="steps"><li>平均の罠：平均値が同じでも、同じと言える？</li><li>外れ値を追加せよ：極端な値で、平均値と中央値はどう変わる？</li><li>箱ひげ図の謎：図から何が読み取れる？</li></ol>' +
+      '<p class="note">どのステージも、まず予想を選んでから、ボタンを押して確かめます。最後に確認問題が4問あります。</p>');
+  }
+
+  function s1() {
+    var sc = D.stage1, a = St.summary(sc.A.scores), b = St.summary(sc.B.scores), s = S.s1, o = '';
+    o += card('問い', '<p class="q">' + sc.question + '</p>');
+    if (!s.open) {
+      o += card('データ', '<div class="tiles"><div class="tile"><b>' + sc.A.name + '</b><span>平均 ' + f(a.mean) + '点</span></div><div class="tile"><b>' + sc.B.name + '</b><span>平均 ' + f(b.mean) + '点</span></div></div><p class="note">個々の得点は、まだ見えません。</p>');
+    } else {
+      o += card('データ', '<div id="plotbox">' + Dr.dots([
+        { label: sc.A.name, values: sc.A.scores, color: C1, summary: a },
+        { label: sc.B.name, values: sc.B.scores, color: C2, summary: b }], { min: 0, max: 100, step: 10, title: 'A組とB組の得点のドットプロット' }) + '</div>' +
+        table(['', '平均値', '中央値', '最大値', '最小値'], [[sc.A.name, f(a.mean), f(a.median), f(a.max), f(a.min)], [sc.B.name, f(b.mean), f(b.median), f(b.max), f(b.min)]]) +
+        '<p class="note">◆ は中央値、▲ は平均値の位置です。</p>');
+    }
+    var fb = '';
+    if (has(s.pick) && !s.open) {
+      fb = '<p class="fb" id="fb">' + ['平均が同じなら特徴も同じ、と考えたのですね。本当にそうか、データで確かめましょう。',
+        '平均が同じでも違いがありそう、と考えたのですね。どこが違うか、データで確かめましょう。',
+        '平均だけでは判断材料が足りないと考えた点は重要です。実際のデータを見てみましょう。'][s.pick] +
+        '</p><button class="main big" data-act="s1open">データを公開</button>';
+    }
+    o += card('予想する', choices('s1pick', sc.options, s.pick, s.open ? sc.answer : null, s.open) + fb);
+    if (s.open) {
+      var j = s.pick === 1 ? '予想どおり、<b>同じとは言えません</b>。' : s.pick === 2 ? '「まだ判断できない」と考えた点は大切です。データを見ると、<b>同じとは言えない</b>ことが分かります。' : 'データを見ると、<b>同じとは言えない</b>ことが分かります。';
+      o += card('わかったこと', '<p>' + j + '</p><ul><li>平均値はどちらも' + f(a.mean) + '点です。</li><li>' + sc.A.name + 'は最大' + f(a.max) + '点・最小' + f(a.min) + '点で、すべて同じ得点です。' + sc.B.name + 'は最大' + f(b.max) + '点・最小' + f(b.min) + '点で、大きく散らばっています。</li><li>中央値は' + sc.A.name + 'が' + f(a.median) + '点、' + sc.B.name + 'が' + f(b.median) + '点で、違います。</li></ul>' +
+        '<p>平均値は、データの特徴を示す代表値の一つです。しかし平均値だけでは、個々のデータや分布の特徴を十分に説明できない場合があります。中央値、最大値・最小値、分布も合わせて見ましょう。</p>' +
+        terms([['代表値', 'データ全体の特徴を1つの値で表したもの（平均値、中央値など）'], ['分布', 'データがどのように散らばっているか']]), 'res');
+    }
+    return o;
+  }
+
+  /* ---------- 共通：数値入力・アニメーション ---------- */
+  function sgn(x) { return (x < 0 ? '−' : '+') + f(Math.abs(x)); }
+  function errHtml(t) { return t.err ? '<p class="fb" role="alert" style="color:#a8201a">⚠ ' + t.err + '</p>' : ''; }
+  function clean(v) { return String(v).replace(/[^0-9.\-]/g, ''); }
+  // list: 表示する値、off: id番号の開始位置
+  function inputs(prefix, list, off, labels, lim) {
+    return '<div class="ingrid">' + list.map(function (v, i) {
+      return '<label>' + labels[i] + '<input class="tryin" type="number" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" min="' + lim.min + '" max="' + lim.max + '" step="1" id="' + prefix + (off + i) + '" value="' + clean(v) + '"></label>';
+    }).join('') + '</div>';
+  }
+  function readVals(prefix, n, lim) {
+    var strs = [], vals = [], err = '', i, el, r;
+    for (i = 0; i < n; i++) { el = $(prefix + i); strs.push(el ? String(el.value) : ''); }
+    for (i = 0; i < n; i++) { r = Valid.intIn(strs[i], lim); if (r.ok) { vals.push(r.v); } else if (!err) { err = r.err; } }
+    return err ? { err: err, strs: strs } : { vals: vals };
+  }
+  // 平均線・点などの動き：描画済みの図(#plotbox)だけを短く描き直し、最後に静止状態へ戻す
+  function animPlot(ms, frame) {
+    var box = $('plotbox');
+    if (!box || !Anim.on()) { return; }
+    var fin = box.innerHTML;
+    box.innerHTML = frame(0);
+    Anim.run(ms, function (p) { var b = $('plotbox'); if (b) { b.innerHTML = frame(p); } }, function () { var b = $('plotbox'); if (b) { b.innerHTML = fin; } });
+  }
+  function lerpS(a, b, p) { var o = {}; ['min', 'q1', 'median', 'q3', 'max', 'iqr'].forEach(function (k) { o[k] = lerp(a[k], b[k], p); }); return o; }
+
+  /* ---------- ステージ② ---------- */
+  var S2OPT = { min: LIM.s2.min, max: LIM.s2.max, step: 20, r: 8, title: '外れ値を追加するときのドットプロット' };
+  function addFrame(p) {
+    var st = D.stage2, b = St.summary(st.base), a = St.summary(st.base.concat([st.extra]));
+    var pos = st.extra + (LIM.s2.max - st.extra) * (1 - p);   // 右端から入ってくる
+    return Dr.dots([{ label: '追加前', values: st.base, color: C1, summary: b },
+      { label: '追加後', values: st.base.concat([pos]), color: C2, summary: { mean: lerp(b.mean, a.mean, p), median: lerp(b.median, a.median, p) }, specialIndex: 5 }], S2OPT);
+  }
+  function tryFrame2(oldV, newV, p) {
+    var v = newV.map(function (x, i) { return lerp(oldV[i], x, p); });
+    return Dr.dots([{ label: '元のデータ', values: D.stage2.base, color: C1, summary: St.summary(D.stage2.base) },
+      { label: '変更後', values: v, color: C2, summary: St.summary(v), specialIndex: 5 }], S2OPT);
+  }
+
+  function s2() {
+    var s = S.s2, st = D.stage2, t = s.t, b = St.summary(st.base), after = St.summary(st.base.concat([st.extra])), o = '', rows, tbl, note = '<p class="note">◆ は中央値、▲ は平均値の位置です。</p>';
+    o += card('問い', '<p class="q">' + st.question + '</p>');
+    if (t.open) {
+      var c0 = St.summary(t.vals);
+      rows = [{ label: '元のデータ', values: st.base, color: C1, summary: b }, { label: '変更後', values: t.vals, color: C2, summary: c0, specialIndex: 5 }];
+      tbl = table(['', '平均値', '中央値'], [['元のデータ', f(b.mean), f(b.median)], ['変更後', f(c0.mean), f(c0.median)], ['変化', sgn(c0.mean - b.mean), sgn(c0.median - b.median)]]);
+      note += '<p class="note">■ は6つ目の値です。</p>';
+    } else if (s.added) {
+      var c = St.summary(s.cur);
+      rows = [{ label: '追加前', values: st.base, color: C1, summary: b }, { label: '追加後', values: s.cur, color: C2, summary: c, specialIndex: 5 }];
+      tbl = table(['', '平均値', '中央値'], [['追加前', f(b.mean), f(b.median)], ['追加後', f(c.mean), f(c.median)], ['変化', sgn(c.mean - b.mean), sgn(c.median - b.median)]]);
+      note += '<p class="note">■ は追加した値です。</p>';
+    } else {
+      rows = [{ label: '追加前', values: st.base, color: C1, summary: b }];
+      tbl = table(['', '平均値', '中央値'], [['いまのデータ', f(b.mean), f(b.median)]]);
+    }
+    o += card('データ', '<div id="plotbox">' + Dr.dots(rows, S2OPT) + '</div>' + tbl + note);
+    var act = '';
+    if (!t.open) {
+      if (has(s.pick) && !s.added) { act = '<p class="fb" id="fb">' + (s.done ? '元のデータに戻りました。もう一度追加して確かめられます。' : '予想を選びました。確かめてみましょう。') + '</p><button class="main big" data-act="s2add">極端な値（' + st.extra + '）を追加</button>'; }
+      if (s.added) { act = '<button class="sub big" data-act="s2undo">データを元に戻す</button>'; }
+    }
+    o += card('予想する・やってみる', choices('s2pick', st.options, s.pick, s.done ? st.answer : null, s.done) + act);
+    if (s.done && !t.open) {
+      var j = s.pick === st.answer ? '予想どおりでした。' : '予想とは違いましたか？ 結果を見て考えてみましょう。';
+      o += card('わかったこと', '<p>' + j + '</p><ul><li>平均値は ' + f(b.mean) + ' から ' + f(after.mean) + ' へ、大きく動きました（+' + f(after.mean - b.mean) + '）。</li><li>中央値は ' + f(b.median) + ' から ' + f(after.median) + ' へ、あまり動きませんでした（+' + f(after.median - b.median) + '）。</li></ul>' +
+        '<p>平均値は極端な値の影響を受けやすい代表値です。中央値はデータを順番に並べたときの真ん中の値で、極端な値の影響の受け方が平均値とは異なります。</p>' +
+        '<p><b>外れ値は、自動的に削除してはいけません。</b>まず、なぜその値になったのかを確かめます。</p><ul><li>入力ミスなどの誤りだと確認できたとき：修正や除外を考える。</li><li>実際に起こりうる極端な値のとき：データの大切な特徴なので、残して考える。</li></ul>' +
+        terms([['外れ値', 'ほかの値から大きく離れた値']]), 'res');
+      o += card('試してみよう', '<p>「80を90にしたら？」「200ではなく100だったら？」自分で数字を変えて、平均値と中央値の動きを観察しよう。</p><button class="main big" data-act="s2try">自分で数字を変えてみる</button>');
+    }
+    if (t.open) {
+      o += card('試してみよう', '<p class="q">数字を変えると、平均値や中央値はどう変わる？</p><p>' + LIM.s2.min + '〜' + LIM.s2.max + 'の整数を入れて「確定」を押します。</p>' +
+        inputs('i2_', t.draft ? t.draft : t.vals, 0, ['データ1', 'データ2', 'データ3', 'データ4', 'データ5', '6つ目（追加した値）'], LIM.s2) + errHtml(t) +
+        '<div class="btns"><button class="main big" data-act="s2ok">確定</button><button class="sub" data-act="s2reset">元のデータに戻す</button><button class="sub" data-act="s2close">課題にもどる</button></div>', 'res');
+    }
+    return o;
+  }
+
+  /* ---------- ステージ③ ---------- */
+  function boxopt(title) { return { min: LIM.s3.min, max: LIM.s3.max, step: 10, minor: 5, title: title }; }
+  function grow(s, p) { if (p >= 1) { return s; } var m = s.median; return lerpS({ min: m, q1: m, median: m, q3: m, max: m, iqr: 0 }, s, p); }
+  function s3sets(i, gx, gy) {
+    var s = S.s3, st = D.stage3, ans = s.ans;
+    var show = { median: ans[0] !== undefined, q: ans[1] !== undefined, iqr: ans[2] !== undefined, minmax: ans[3] !== undefined };
+    var sets = [{ label: 'X', s: grow(St.summary(st.X), gx), color: C1, tint: '#e3f3f7', show: show, dots: s.dots ? st.X : null }];
+    if (i === 4) { sets.push({ label: 'Y', s: grow(St.summary(st.Y), gy), color: C2, tint: '#fdeed9', show: show, dots: s.dots ? st.Y : null }); }
+    return sets;
+  }
+  function stepSvg(i, gx, gy) { return Dr.boxes(s3sets(i, gx, gy), boxopt(i === 4 ? 'XとYの箱ひげ図' : 'Xの箱ひげ図')); }
+  var ALL = { median: true, q: true, iqr: true, minmax: true };
+  function trySvg(sx, sy, X, Y) {
+    return Dr.boxes([{ label: 'X', s: sx, color: C1, tint: '#e3f3f7', show: ALL, dots: X }, { label: 'Y', s: sy, color: C2, tint: '#fdeed9', show: ALL, dots: Y }], boxopt('XとYの箱ひげ図（変更できます）'));
+  }
+  function tryFrame3(oX, oY, nX, nY, p) {
+    var vx = nX.map(function (v, i) { return lerp(oX[i], v, p); }), vy = nY.map(function (v, i) { return lerp(oY[i], v, p); });
+    return trySvg(lerpS(St.summary(oX), St.summary(nX), p), lerpS(St.summary(oY), St.summary(nY), p), vx, vy);
+  }
+  function sumRow(name, x) { return [name, f(x.min), f(x.q1), f(x.median), f(x.q3), f(x.max), f(x.iqr)]; }
+
+  function s3() {
+    var s = S.s3, st = D.stage3, i = s.i, step = st.steps[i], ans = s.ans, t = s.t, o = '';
+    if (t.open) {
+      var sx = St.summary(t.X), sy = St.summary(t.Y), labs = [], k;
+      for (k = 1; k <= 11; k++) { labs.push('' + k); }
+      o += card('試してみよう', '<p class="q">データの数字を変えると、箱ひげ図はどう変わる？</p><p>' + LIM.s3.min + '〜' + LIM.s3.max + 'の整数を入れて「確定」を押します。四分位数は、これまでと同じ方法（中央値で前半と後半に分ける）で計算されます。</p>');
+      o += card('データ', '<div id="plotbox">' + trySvg(sx, sy, t.X, t.Y) + '</div>' + table(['', '最小値', 'Q1', '中央値', 'Q3', '最大値', '四分位範囲'], [sumRow('X', sx), sumRow('Y', sy)]) + '<p class="note">● は実際のデータ1つ1つです。</p>');
+      o += card('数字を変える', '<h3>X（11個）</h3>' + inputs('i3_', t.draft ? t.draft.slice(0, 11) : t.X, 0, labs, LIM.s3) + '<h3>Y（11個）</h3>' + inputs('i3_', t.draft ? t.draft.slice(11) : t.Y, 11, labs, LIM.s3) + errHtml(t) +
+        '<div class="btns"><button class="main big" data-act="s3ok">確定</button><button class="sub" data-act="s3reset">元のデータに戻す</button><button class="sub" data-act="s3close">課題にもどる</button></div>', 'res');
+      return o;
+    }
+    var done = ans[i] !== undefined;
+    o += card('問題 ' + (i + 1) + ' / 5', '<p class="q">' + step.q + '</p>');
+    o += card('データ', '<div id="plotbox">' + stepSvg(i, 1, 1) + '</div>' + (s.dots ? '<p class="note">● は実際のデータ1つ1つです。</p>' : ''));
+    var act = '';
+    if (done && i < 4) { act = '<button class="main big" data-act="s3next">次の問題へ</button>'; }
+    if (done && i === 4) { act = '<button class="sub big" data-act="s3dots">' + (s.dots ? '実際のデータを隠す' : '実際のデータを重ねて見る') + '</button>'; }
+    o += card('答えを選ぶ', choices('s3pick', step.options, ans[i], step.answer, done) + act);
+    if (done) {
+      var extra = '';
+      if (i === 4) {
+        extra = terms([['箱ひげ図', '最小値・第1四分位数・中央値・第3四分位数・最大値の5つの値でデータの分布を表す図'], ['四分位数', 'データを小さい順に並べ、4等分する位置の値（第1・中央値・第3）'], ['四分位範囲', '第3四分位数 − 第1四分位数。箱の長さ']]);
+      }
+      o += card('わかったこと', '<p>' + (ans[i] === step.answer ? '正解です。' : '残念、正解は「' + step.options[step.answer] + '」です。') + '</p><p>' + step.explain + '</p>' + extra, 'res');
+      if (i === 4) { o += card('試してみよう', '<p>X・Yの数字を自分で変えて、箱ひげ図がどう変わるか観察しよう。</p><button class="main big" data-act="s3try">自分で数字を変えてみる</button>'); }
+    }
+    return o;
+  }
+
+  function quiz() {
+    var s = S.q, i = s.i, it = D.quiz[i], done = s.ans[i] !== undefined, o = '';
+    o += card('確認問題 ' + (i + 1) + ' / ' + D.quiz.length, '<p class="q">' + it.q + '</p>');
+    o += card('答えを選ぶ', choices('qpick', it.options, s.ans[i], it.answer, done) + (done ? '<button class="main big" data-act="qnext">' + (i < D.quiz.length - 1 ? '次の問題へ' : '結果を見る') + '</button>' : ''));
+    if (done) { o += card('わかったこと', '<p>' + (s.ans[i] === it.answer ? '正解です。' : '残念、正解は「' + it.options[it.answer] + '」です。') + '</p><p>' + it.explain + '</p>', 'res'); }
+    return o;
+  }
+
+  function end() {
+    var n = 0, li = D.quiz.map(function (it, i) { var ok = S.q.ans[i] === it.answer; if (ok) { n++; } return '<li>' + (ok ? '○' : '×') + ' 問題' + (i + 1) + '：' + (ok ? '正解' : '正解は「' + it.options[it.answer] + '」') + '</li>'; }).join('');
+    return card('確認問題の結果（この画面だけで表示。保存・送信はしません）', '<p class="q">確認問題は終了です。</p><p class="q">' + D.quiz.length + '問中 ' + n + '問 正解</p><ul class="result">' + li + '</ul><button class="sub" data-act="qagain">確認問題をもう一度やる</button>') +
+      card('次のステップ', '<p class="final">次はExcelを使って、実際のデータの特徴を自分で調べてみよう。</p><button class="sub" data-act="all">最初からやり直す</button>');
+  }
+
+  /* ---------- 描画と操作 ---------- */
+  function render(focus) {
+    Anim.stop();
+    app.innerHTML = header() + '<main>' + [title, s1, s2, s3, quiz, end][S.scr]() + '</main>' + footer();
+    if (focus) { var el = document.getElementById(focus); if (el && el.scrollIntoView) { try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); } } }
+  }
+  function go(n) {
+    S.scr = n; S.ask = null; render(); try { window.scrollTo(0, 0); } catch (e) {}
+    if (n === 3 && S.s3.ans.length === 0 && !S.s3.t.open) { animPlot(500, function (p) { return stepSvg(0, p, 1); }); }
+  }
+  function resetStage() { var F = fresh(); if (S.scr === 1) { S.s1 = F.s1; } if (S.scr === 2) { S.s2 = F.s2; } if (S.scr === 3) { S.s3 = F.s3; } if (S.scr === 4) { S.q = F.q; } }
+
+  function tryApply2(reset) {
+    var t = S.s2.t, old = t.vals.slice(), nw, r;
+    if (reset) { nw = D.stage2.base.concat([D.stage2.extra]); }
+    else { r = readVals('i2_', 6, LIM.s2); if (r.err) { t.err = r.err; t.draft = r.strs; return render('res'); } nw = r.vals; }
+    t.vals = nw; t.draft = null; t.err = '';
+    render('res'); animPlot(600, function (p) { return tryFrame2(old, nw, p); });
+  }
+  function tryApply3(reset) {
+    var t = S.s3.t, oX = t.X.slice(), oY = t.Y.slice(), nX, nY, r;
+    if (reset) { nX = D.stage3.X.slice(); nY = D.stage3.Y.slice(); }
+    else { r = readVals('i3_', 22, LIM.s3); if (r.err) { t.err = r.err; t.draft = r.strs; return render('res'); } nX = r.vals.slice(0, 11); nY = r.vals.slice(11); }
+    t.X = nX; t.Y = nY; t.draft = null; t.err = '';
+    render('res'); animPlot(700, function (p) { return tryFrame3(oX, oY, nX, nY, p); });
+  }
+  function act(a, v) {
+    var s;
+    switch (a) {
+      case 'help': S.help = !S.help; return render();
+      case 'retry': S.ask = 'stage'; return render();
+      case 'all': S.ask = 'all'; return render();
+      case 'askNo': S.ask = null; return render();
+      case 'askYes': if (S.ask === 'all') { S = fresh(); } else { resetStage(); S.ask = null; } return render();
+      case 'back': if (S.scr > 0) { go(S.scr - 1); } return;
+      case 'next':
+        if (!canNext()) { return; }
+        if (S.scr === 3 && S.s3.i < 4) { return act('s3next'); }
+        if (S.scr === 4 && S.q.i < D.quiz.length - 1) { return act('qnext'); }
+        return go(S.scr + 1);
+      case 's1pick': S.s1.pick = v; return render('fb');
+      case 's1open': S.s1.open = true; render('res'); return animPlot(800, function (p) {
+        var sc = D.stage1, N = 5, k = Math.ceil(Math.min(1, p / 0.6) * N - 1e-9);
+        return Dr.dots([{ label: sc.A.name, values: sc.A.scores, color: C1, summary: St.summary(sc.A.scores), limit: k, showMean: p >= 0.6, showMedian: p >= 0.8 },
+          { label: sc.B.name, values: sc.B.scores, color: C2, summary: St.summary(sc.B.scores), limit: k, showMean: p >= 0.6, showMedian: p >= 0.8 }], { min: 0, max: 100, step: 10, title: 'A組とB組の得点のドットプロット' });
+      });
+      case 's2pick': S.s2.pick = v; return render('fb');
+      case 's2add': s = S.s2; s.cur = D.stage2.base.concat([D.stage2.extra]); s.added = true; s.done = true; render('res'); return animPlot(700, addFrame);
+      case 's2undo': s = S.s2; s.cur = D.stage2.base.slice(); s.added = false; render('fb'); return animPlot(600, function (p) { return addFrame(1 - p); });
+      case 's2try': S.s2.t = { open: true, vals: D.stage2.base.concat([D.stage2.extra]), draft: null, err: '' }; return render('res');
+      case 's2close': S.s2.t.open = false; return render();
+      case 's2ok': case 's2reset': return tryApply2(a === 's2reset');
+      case 's3try': S.s3.t = { open: true, X: D.stage3.X.slice(), Y: D.stage3.Y.slice(), draft: null, err: '' }; return render('res');
+      case 's3close': S.s3.t.open = false; return render();
+      case 's3ok': case 's3reset': return tryApply3(a === 's3reset');
+      case 's3pick': S.s3.ans[S.s3.i] = v; return render('res');
+      case 's3next': if (S.s3.i < 4) { S.s3.i++; } render(); try { window.scrollTo(0, 0); } catch (e) {}
+        if (S.s3.i === 4) { animPlot(500, function (p) { return stepSvg(4, 1, p); }); } return;
+      case 's3dots': S.s3.dots = !S.s3.dots; return render();
+      case 'qpick': S.q.ans[S.q.i] = v; return render('res');
+      case 'qnext': if (S.q.i < D.quiz.length - 1) { S.q.i++; render(); try { window.scrollTo(0, 0); } catch (e) {} } else { go(5); } return;
+      case 'qagain': S.q = fresh().q; return go(4);
+    }
+  }
+  app.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!b || b.disabled) { return; }
+    act(b.getAttribute('data-act'), Number(b.getAttribute('data-v')));
+  });
+  app.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target && e.target.className === 'tryin') { e.preventDefault(); act(S.scr === 2 ? 's2ok' : 's3ok'); }
+  });
+  render();
+})();
+</script>
+</body>
+</html>
