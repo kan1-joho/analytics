@@ -2,7 +2,7 @@
 const { JSDOM } = require('jsdom'); const path = require('path'); const assert = require('assert');
 let pass = 0, fail = 0;
 function t(name, fn) { try { fn(); pass++; console.log('成功  ' + name); } catch (e) { fail++; console.log('失敗  ' + name + ' → ' + e.message); } }
-JSDOM.fromFile(path.join(__dirname, '../app-a.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true }).then(dom => {
+JSDOM.fromFile(path.join(__dirname, '../app-a.html'), { runScripts: 'dangerously', resources: 'usable', pretendToBeVisual: true, beforeParse(w) { w.NO_ANIM = true; } }).then(dom => {
   const w = dom.window, d = w.document;
   w.addEventListener('error', e => { fail++; console.log('失敗  実行時エラー ' + e.message); });
   setTimeout(() => {
@@ -32,6 +32,23 @@ JSDOM.fromFile(path.join(__dirname, '../app-a.html'), { runScripts: 'dangerously
     t('S2 元に戻す：初期データに戻る（平均70・中央値70・点5つ）', () => { assert.deepStrictEqual(rows(), [['いまのデータ', '70', '70']]); assert.strictEqual($$('svg circle').length, 5); assert.strictEqual($$('svg rect').length, 0); assert.ok(nextOn()); });
     click('s2add');
     t('S2 再追加できる', () => assert.deepStrictEqual(rows()[1], ['追加後', '91.67', '72.5']));
+    const setIn = (id, v) => { const e = d.getElementById(id); assert.ok(e, '入力欄なし:' + id); e.value = v; };
+    click('s2try');
+    t('S2 試してみよう：6つの入力欄（初期値60,65,70,75,80,200）、数値入力用の属性', () => { const ins = $$('input.tryin'); assert.strictEqual(ins.length, 6); assert.deepStrictEqual(ins.map(e => e.value), ['60', '65', '70', '75', '80', '200']); assert.strictEqual(ins[0].getAttribute('type'), 'number'); assert.strictEqual(ins[0].getAttribute('inputmode'), 'numeric'); });
+    setIn('i2_4', '90'); click('s2ok');
+    t('S2 80→90：平均・中央値が再計算され、図に反映（元データは不変）', () => { assert.deepStrictEqual(rows(), [['元のデータ', '70', '70'], ['変更後', '93.33', '72.5'], ['変化', '+23.33', '+2.5']]); assert.ok(svgTxt().includes('平均 93.33') && svgTxt().includes('平均 70')); assert.strictEqual(d.getElementById('i2_4').value, '90'); });
+    setIn('i2_5', '100'); click('s2ok');
+    t('S2 80→90のまま200→100：平均が約76.67、中央値72.5', () => assert.deepStrictEqual(rows()[1], ['変更後', '76.67', '72.5']));
+    setIn('i2_5', ''); click('s2ok');
+    t('S2 空欄は確定できない（エラー表示・入力欄の値は保持・データ不変）', () => { assert.ok(txt().includes('数字（整数）だけを入れてください')); assert.deepStrictEqual(rows()[1], ['変更後', '76.67', '72.5']); });
+    setIn('i2_5', '999'); click('s2ok');
+    t('S2 範囲外は確定できない', () => { assert.ok(txt().includes('40〜220の整数を入れてください')); assert.deepStrictEqual(rows()[1], ['変更後', '76.67', '72.5']); });
+    setIn('i2_5', 'abc'); click('s2ok');
+    t('S2 数字以外は確定できない', () => assert.ok(txt().includes('数字（整数）だけ')));
+    click('s2reset');
+    t('S2 元のデータに戻す：初期データ（…200）に戻る', () => { assert.deepStrictEqual(rows()[1], ['変更後', '91.67', '72.5']); assert.deepStrictEqual($$('input.tryin').map(e => e.value), ['60', '65', '70', '75', '80', '200']); });
+    click('s2close');
+    t('S2 課題にもどる：課題モードの表示に戻る', () => { assert.ok(!$('input.tryin')); assert.ok(nextOn()); });
     click('next');
     t('S3 開始：数値ラベルなし（答えが見えていない）', () => { assert.ok(!/中央値 |Q1|最小|四分位範囲 =/.test(svgTxt())); assert.ok(!nextOn()); });
     click('s3pick', 0);
@@ -48,10 +65,26 @@ JSDOM.fromFile(path.join(__dirname, '../app-a.html'), { runScripts: 'dangerously
     t('S3 問5：解説に「個々の値すべては読み取れない」「中央値が高い≠平均も高い」', () => { assert.ok(txt().includes('個々のデータの値すべては分かりません')); assert.ok(txt().includes('平均値も必ず高いとは限りません')); assert.ok(nextOn()); });
     click('s3dots');
     t('S3 データ重ね表示：11+11個の点', () => assert.strictEqual($$('svg circle').length, 22));
+    click('s3try');
+    t('S3 試してみよう：22個の入力欄（X・Y各11）、表の初期値が期待値と一致', () => { assert.strictEqual($$('input.tryin').length, 22); assert.deepStrictEqual(rows(), [['X', '42', '55', '65', '75', '93', '20'], ['Y', '48', '60', '65', '70', '82', '10']]); });
+    setIn('i3_10', '99'); setIn('i3_0', '50'); click('s3ok');
+    t('S3 X（93→99, 42→50）：最大値・最小値だけが変わり、図と表が一致', () => { assert.deepStrictEqual(rows()[0], ['X', '50', '55', '65', '75', '99', '20']); assert.ok(svgTxt().includes('最大 99') && svgTxt().includes('最小 50')); });
+    for (let k = 0; k < 11; k++) setIn('i3_' + k, [60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70][k]);
+    click('s3ok');
+    t('S3 Xを60〜70に変更：Q1=62, 中央値=65, Q3=68, IQR=6（中央値を除いて上下に分ける方式）', () => assert.deepStrictEqual(rows()[0], ['X', '60', '62', '65', '68', '70', '6']));
+    setIn('i3_3', '30'); click('s3ok');
+    t('S3 範囲外（30）は確定できず、データ不変', () => { assert.ok(txt().includes('40〜100の整数')); assert.deepStrictEqual(rows()[0], ['X', '60', '62', '65', '68', '70', '6']); });
+    click('s3reset');
+    t('S3 元のデータに戻す', () => { assert.deepStrictEqual(rows(), [['X', '42', '55', '65', '75', '93', '20'], ['Y', '48', '60', '65', '70', '82', '10']]); });
+    click('s3close');
+    t('S3 課題にもどる', () => { assert.ok(!$('input.tryin')); assert.ok(nextOn()); });
     click('next');
     t('確認問題：1問目を誤答→正解と解説が出る', () => { click('qpick', 0); assert.ok(txt().includes('正解は「平均が同じでも、分布や中央値が違うことがある」')); assert.ok(txt().includes('B組は平均70点でも中央値は100点')); });
-    click('qnext'); click('qpick', 2); click('qnext'); click('qpick', 0); click('qnext'); click('qpick', 1);
-    t('確認問題：最終問題後に結果へ進める', () => { assert.ok(nextOn()); click('qnext'); assert.ok(txt().includes('4問中 3問 正解')); });
+    t('確認問題：1問目の後、固定バーの「次の問題へ」が使える', () => { assert.ok(nextOn()); assert.ok($('[data-act="next"]').textContent === '次の問題へ'); });
+    click('next'); t('確認問題：2問目が表示される', () => assert.ok(txt().includes('問題 2') || txt().includes('確認問題 2 / 4')));
+    click('qpick', 2); click('next'); click('qpick', 0); click('next'); click('qpick', 1);
+    t('確認問題：最終問題で固定バーが「結果を見る」になる', () => assert.strictEqual($('[data-act="next"]').textContent, '結果を見る'));
+    t('確認問題：最終問題後に結果へ進める', () => { assert.ok(nextOn()); click('next'); assert.ok(txt().includes('4問中 3問 正解')); assert.ok(txt().includes('確認問題は終了です。')); });
     t('終了画面：Excelへのメッセージ', () => assert.ok(txt().includes('次はExcelを使って、実際のデータの特徴を自分で調べてみよう。')));
     click('back');
     t('戻る：確認問題に戻っても回答状態が保持される', () => { assert.ok($('.choice.ok')); assert.ok(nextOn()); });

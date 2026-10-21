@@ -1,7 +1,7 @@
 // 計算・データの自動テスト（node tests/test-a.js）
 const assert = require('assert');
 const D = require('../data-a.js');
-const { Stats } = require('../common.js');
+const { Stats, Valid } = require('../common.js');
 let pass = 0, fail = 0;
 function t(name, fn) { try { fn(); pass++; console.log('成功  ' + name); } catch (e) { fail++; console.log('失敗  ' + name + ' → ' + e.message); } }
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, a + ' != ' + b);
@@ -37,5 +37,10 @@ t('外部通信・保存APIを使っていない', () => {
     assert.ok(!/fetch\(|XMLHttpRequest|localStorage|sessionStorage|indexedDB|document\.cookie|sendBeacon|WebSocket|https?:\/\//.test(src), p);
   });
 });
+t('編集後のデータでも再計算が正しい（S2：80→90）', () => { const v = [60, 65, 70, 75, 90, 200], x = Stats.summary(v); near(x.mean, 560 / 6); near(x.median, 72.5); });
+t('編集後のデータでも再計算が正しい（S3：60〜70の11個）', () => { const x = Stats.summary([60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70]); near(x.q1, 62); near(x.median, 65); near(x.q3, 68); near(x.iqr, 6); });
+t('入力範囲が軸の範囲と一致', () => { assert.deepStrictEqual(D.limits, { s2: { min: 40, max: 220 }, s3: { min: 40, max: 100 } }); });
+t('入力チェック：正しい値', () => { const r = Valid.intIn(' 70 ', D.limits.s2); assert.ok(r.ok && r.v === 70); assert.ok(Valid.intIn('40', D.limits.s2).ok && Valid.intIn('220', D.limits.s2).ok); });
+t('入力チェック：空欄・文字・小数・負数・指数表記・範囲外は不可', () => { ['', '  ', 'abc', '5.5', '-50', '1e2', '39', '221', '７０'].forEach(x => assert.ok(!Valid.intIn(x, D.limits.s2).ok, '[' + x + ']')); });
 console.log('\n成功 ' + pass + ' / 失敗 ' + fail);
 process.exit(fail ? 1 : 0);
